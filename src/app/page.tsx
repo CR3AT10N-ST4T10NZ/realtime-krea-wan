@@ -10,10 +10,10 @@ import {
 } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
-import { Logo } from "@/components/icons/logo";
+import { Logo, LogoIcon } from "@/components/icons/logo";
 import Link from "next/link";
 import { msgpackEncode } from "@/lib/msgpack";
-import { Download, Dices, Play, Pause, Loader2 } from "lucide-react";
+import { Download, Dices, Play, Pause, Loader2, Github } from "lucide-react";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
 
@@ -56,7 +56,7 @@ export default function Page() {
   );
   const [width, setWidth] = useState(832);
   const [height, setHeight] = useState(480);
-  const [numBlocks, setNumBlocks] = useState(20);
+  const [numBlocks] = useState(1000);
   const [seed, setSeed] = useState("");
   const [playbackFps, setPlaybackFps] = useState(8);
   const [isConnected, setIsConnected] = useState(false);
@@ -163,6 +163,18 @@ export default function Page() {
     }
   };
 
+  // Stop frame capture and enable download
+  const stopRecording = useCallback(() => {
+    if (storedFramesRef.current.length > 0) {
+      setHasRecordedVideo(true);
+      console.log(
+        "Frame capture complete:",
+        storedFramesRef.current.length,
+        "frames"
+      );
+    }
+  }, []);
+
   // Frame timeout watchdog
   useEffect(() => {
     if (!isGenerating) {
@@ -179,6 +191,7 @@ export default function Page() {
         if (timeSinceLastFrame > FRAME_TIMEOUT_MS) {
           setStatus("Stopped - no frames received");
           setIsGenerating(false);
+          stopRecording();
         }
       }
     }, 2000);
@@ -189,7 +202,7 @@ export default function Page() {
         frameTimeoutCheckRef.current = null;
       }
     };
-  }, [isGenerating]);
+  }, [isGenerating, stopRecording]);
 
   // Generate random seed
   const randomizeSeed = useCallback(() => {
@@ -201,18 +214,6 @@ export default function Page() {
     storedFramesRef.current = [];
     setHasRecordedVideo(false);
     console.log("Started capturing frames for video export");
-  }, []);
-
-  // Stop frame capture and enable download
-  const stopRecording = useCallback(() => {
-    if (storedFramesRef.current.length > 0) {
-      setHasRecordedVideo(true);
-      console.log(
-        "Frame capture complete:",
-        storedFramesRef.current.length,
-        "frames"
-      );
-    }
   }, []);
 
   // Play stored frames on canvas
@@ -745,21 +746,35 @@ export default function Page() {
         <header className="w-full py-6 px-4 relative z-10 border-b border-border-default">
           <div className="container mx-auto flex items-center justify-between">
             <Link href="https://fal.ai" target="_blank">
-              <Logo className="h-8 w-16 text-text-primary" />
+              <Logo className="h-8 w-16" />
             </Link>
-            <h1 className="text-xl sm:text-2xl font-bold text-text-primary">
-              [ REAL-TIME VIDEO GENERATION ]
-            </h1>
+            <Link
+              href="https://github.com/fal-ai-community/realtime-krea-wan"
+              target="_blank"
+              className={buttonVariants({
+                variant: "default",
+              })}
+            >
+              <Github className="h-4 w-4" />
+              VIEW SOURCE
+            </Link>
           </div>
         </header>
 
         {/* Main Content */}
-        <div className="flex-1 flex items-center md:-mt-16">
+        <div className="flex-1 flex items-center py-8">
           <div className="container mx-auto px-4 max-w-7xl relative z-10 w-full">
             {/* Title */}
-            <h2 className=" text-2xl sm:text-3xl font-bold text-text-primary text-center mb-8 font-mono">
-              KREA WAN 14B REALTIME
-            </h2>
+            <div className="flex items-center justify-center gap-4 mb-8">
+              <LogoIcon
+                className="h-8 w-8 sm:h-10 sm:w-10"
+                style={{ color: "#CE1241" }}
+              />
+              <div className="h-8 w-px bg-border-default sm:h-10" />
+              <h2 className="text-2xl sm:text-3xl font-bold text-text-primary font-mono">
+                KREA WAN 14B REALTIME
+              </h2>
+            </div>
 
             <main className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               {/* Controls - Takes 1 column on the left */}
@@ -828,22 +843,27 @@ export default function Page() {
                       </div>
                     </div> */}
 
-                    {/* Blocks Slider */}
+                    {/* Playback FPS */}
                     <div>
                       <label className="block text-xs font-medium text-text-muted mb-2 font-mono">
-                        VIDEO LENGTH (BLOCKS): {numBlocks}
+                        PLAYBACK FPS: {playbackFps}
                       </label>
                       <Slider
-                        min={10}
-                        max={50}
-                        step={5}
-                        value={[numBlocks]}
-                        onValueChange={(value) => setNumBlocks(value[0])}
-                        disabled={isGenerating}
+                        min={1}
+                        max={30}
+                        step={1}
+                        value={[playbackFps]}
+                        onValueChange={(value) => {
+                          const fps = value[0];
+                          setPlaybackFps(fps);
+                          if (playbackIntervalRef.current) {
+                            startPlaybackLoop();
+                          }
+                        }}
                         className="w-full"
                       />
                       <p className="text-xs text-text-muted mt-1 font-mono">
-                        More blocks = longer video
+                        Frame rate for video playback
                       </p>
                     </div>
 
@@ -872,31 +892,8 @@ export default function Page() {
                       </div>
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-medium text-text-muted mb-2 font-mono">
-                        PLAYBACK FPS: {playbackFps}
-                      </label>
-                      <Slider
-                        min={1}
-                        max={30}
-                        step={1}
-                        value={[playbackFps]}
-                        onValueChange={(value) => {
-                          const fps = value[0];
-                          setPlaybackFps(fps);
-                          if (playbackIntervalRef.current) {
-                            startPlaybackLoop();
-                          }
-                        }}
-                        className="w-full"
-                      />
-                      <p className="text-xs text-text-muted mt-1 font-mono">
-                        Frame rate for video playback
-                      </p>
-                    </div>
-
                     {/* Action Buttons */}
-                    <div className="flex gap-2 pt-2">
+                    <div className="flex gap-2 pt-2 justify-end">
                       {/* Play Button - appears when frames are ready */}
                       {hasRecordedVideo && (
                         <Button
@@ -915,7 +912,7 @@ export default function Page() {
 
                       <Button
                         onClick={toggleGeneration}
-                        className="flex-1 py-3 text-sm font-bold font-mono flex items-center justify-between"
+                        className="flex-1 py-3 text-sm font-bold max-w-[200px] font-mono flex items-center justify-between"
                         variant={isGenerating ? "red" : "blue"}
                       >
                         <span>{isGenerating ? "[ STOP ]" : "[ START ]"}</span>
@@ -988,10 +985,17 @@ export default function Page() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="p-4">
-                    <div className="relative w-full bg-terminal-background border border-border-default flex items-center justify-center overflow-hidden aspect-video">
+                    <div
+                      className={cn(
+                        "relative w-full bg-terminal-background border flex items-center justify-center overflow-hidden aspect-video",
+                        isGenerating
+                          ? "border-rainbow"
+                          : "border-border-default"
+                      )}
+                    >
                       <canvas
                         ref={canvasRef}
-                        className="max-w-full max-h-full object-contain"
+                        className="w-full h-full object-contain"
                       />
                       {frameCount === 0 && (
                         <div className="absolute text-center p-8 border-rainbow">
@@ -1029,12 +1033,6 @@ export default function Page() {
                             {frameCount}
                           </span>
                         </span>
-                        <span className="text-text-muted font-mono text-xs">
-                          BLOCKS:{" "}
-                          <span className="font-semibold text-text-primary">
-                            {numBlocks}
-                          </span>
-                        </span>
                       </div>
                     </div>
                   </CardContent>
@@ -1055,7 +1053,7 @@ export default function Page() {
                   target="_blank"
                   className="hover:text-text-emphasis transition-colors"
                 >
-                  <Logo className="h-6 w-12 text-text-primary" />
+                  <Logo className="h-6 w-10" />
                 </Link>
               </div>
 
