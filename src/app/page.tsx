@@ -9,11 +9,24 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import KonvaEditor, {
+  KonvaEditorHandle,
+} from "@/components/canvas/KonvaEditor";
 import { cn } from "@/lib/utils";
 import { Logo, LogoIcon } from "@/components/icons/logo";
 import Link from "next/link";
 import { msgpackEncode } from "@/lib/msgpack";
-import { Download, Dices, Play, Pause, Loader2, Github } from "lucide-react";
+import {
+  Download,
+  Dices,
+  Play,
+  Pause,
+  Loader2,
+  Github,
+  Camera,
+  Upload,
+} from "lucide-react";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
 
@@ -51,14 +64,18 @@ const FAL_APP_ALIAS = process.env.NEXT_PUBLIC_FAL_APP_ALIAS || "krea-wan-14b";
 
 export default function Page() {
   // State
+  const [mode, setMode] = useState<"text" | "video" | "canvas">("text");
   const [prompt, setPrompt] = useState(
     "A cat riding a skateboard through a neon city"
   );
   const [width, setWidth] = useState(832);
   const [height, setHeight] = useState(480);
+  const [hasActiveWebcam, setHasActiveWebcam] = useState(false);
   const [numBlocks] = useState(1000);
   const [seed, setSeed] = useState("");
   const [playbackFps, setPlaybackFps] = useState(8);
+  const [inputFps, setInputFps] = useState(8);
+  const [strength, setStrength] = useState(0.8);
   const [isConnected, setIsConnected] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [frameCount, setFrameCount] = useState(0);
@@ -67,9 +84,21 @@ export default function Page() {
   const [isProcessingVideo, setIsProcessingVideo] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
 
+  // Video mode state
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [videoMetadata, setVideoMetadata] = useState<{
+    duration: number;
+    width: number;
+    height: number;
+  } | null>(null);
+
   // Refs
   const wsRef = useRef<WebSocket | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const drawingCanvasRef = useRef<HTMLCanvasElement>(null);
+  const konvaRef = useRef<KonvaEditorHandle | null>(null);
+  const videoElementRef = useRef<HTMLVideoElement>(null);
+  const extractionCanvasRef = useRef<HTMLCanvasElement>(null);
   const textDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const playbackIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const frameBufferRef = useRef<ImageBitmap[]>([]);
@@ -79,6 +108,7 @@ export default function Page() {
   const frameTimeoutCheckRef = useRef<NodeJS.Timeout | null>(null);
   const playbackLoopRef = useRef<NodeJS.Timeout | null>(null);
   const playbackFrameIndexRef = useRef<number>(0);
+  const frameExtractionIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Initialize FFmpeg
   const loadFFmpeg = useCallback(async () => {
@@ -469,6 +499,169 @@ export default function Page() {
     }
   };
 
+  // Video/Canvas frame extraction
+  const extractVideoFrameBytes =
+    useCallback(async (): Promise<Uint8Array | null> => {
+      const video = videoElementRef.current;
+      const canvas = extractionCanvasRef.current;
+
+      if (!video || !canvas) {
+        console.error("Video or extraction canvas not found");
+        return null;
+      }
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
+
+      return new Promise((resolve) => {
+        canvas.toBlob(
+          async (blob) => {
+            if (!blob) {
+              console.error("Failed to create blob from video canvas");
+              resolve(null);
+              return;
+            }
+            try {
+              const arrayBuffer = await blob.arrayBuffer();
+              resolve(new Uint8Array(arrayBuffer));
+            } catch (error) {
+              console.error("Failed to convert blob to Uint8Array:", error);
+              resolve(null);
+            }
+          },
+          "image/jpeg",
+          0.9
+        );
+      });
+    }, []);
+
+  const extractCanvasBytes =
+    useCallback(async (): Promise<Uint8Array | null> => {
+      // Prefer Konva stage if available
+      if (
+        konvaRef.current &&
+        typeof konvaRef.current.toDataURL === "function"
+      ) {
+        const dataUrl = konvaRef.current.toDataURL();
+        if (dataUrl) {
+          try {
+            const res = await fetch(dataUrl);
+            const blob = await res.blob();
+            const buf = await blob.arrayBuffer();
+            const bytes = new Uint8Array(buf);
+            console.log(
+              `[Canvas] Extracted ${bytes.length} bytes from Konva stage`
+            );
+            return bytes;
+          } catch (e) {
+            console.error("Failed to convert Konva data URL to bytes", e);
+          }
+        } else {
+          console.warn("[Canvas] Konva toDataURL returned null or empty");
+        }
+      }
+
+      const canvas = drawingCanvasRef.current;
+      if (!canvas) {
+        console.error("Drawing canvas not found");
+        return null;
+      }
+
+      return new Promise((resolve) => {
+        canvas.toBlob(
+          async (blob) => {
+            if (!blob) {
+              console.error("Failed to create blob from drawing canvas");
+              resolve(null);
+              return;
+            }
+            try {
+              const arrayBuffer = await blob.arrayBuffer();
+              resolve(new Uint8Array(arrayBuffer));
+            } catch (error) {
+              console.error("Failed to convert blob to Uint8Array:", error);
+              resolve(null);
+            }
+          },
+          "image/jpeg",
+          0.9
+        );
+      });
+    }, []);
+
+  // Start frame extraction for video/canvas modes
+  const startFrameExtraction = useCallback(() => {
+    const intervalMs = Math.floor(1000 / inputFps);
+    const video = videoElementRef.current;
+
+    if (mode === "video" && video) {
+      video.play();
+    }
+
+    frameExtractionIntervalRef.current = setInterval(async () => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        stopFrameExtraction();
+        return;
+      }
+
+      let frameBytes: Uint8Array | null = null;
+      if (mode === "video") {
+        if (video && video.ended) {
+          video.currentTime = 0;
+          video.play();
+        }
+        frameBytes = await extractVideoFrameBytes();
+      } else if (mode === "canvas") {
+        frameBytes = await extractCanvasBytes();
+      }
+
+      if (!frameBytes || frameBytes.length === 0) {
+        console.warn("Empty frame, skipping");
+        return;
+      }
+
+      const message: Record<string, any> = {
+        image: frameBytes,
+        strength: strength,
+        timestamp: Date.now(),
+      };
+
+      // For canvas mode, include prompt and num_blocks continually
+      if (mode === "canvas") {
+        message.prompt = prompt;
+        message.num_blocks = numBlocks;
+      }
+
+      const encoded = msgpackEncode(message);
+      wsRef.current.send(encoded);
+    }, intervalMs);
+  }, [
+    mode,
+    inputFps,
+    strength,
+    prompt,
+    numBlocks,
+    extractVideoFrameBytes,
+    extractCanvasBytes,
+  ]);
+
+  const stopFrameExtraction = useCallback(() => {
+    if (frameExtractionIntervalRef.current) {
+      clearInterval(frameExtractionIntervalRef.current);
+      frameExtractionIntervalRef.current = null;
+    }
+
+    const video = videoElementRef.current;
+    if (video) {
+      video.pause();
+      video.currentTime = 0;
+    }
+  }, []);
+
   // Send initial parameters
   const sendParams = useCallback(async () => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
@@ -487,19 +680,24 @@ export default function Page() {
       return false;
     }
 
-    const normalizedWidth = Math.max(64, Math.round(width / 8) * 8);
-    const normalizedHeight = Math.max(64, Math.round(height / 8) * 8);
-
-    if (normalizedWidth !== width) setWidth(normalizedWidth);
-    if (normalizedHeight !== height) setHeight(normalizedHeight);
-
     const payload: Record<string, any> = {
       prompt: trimmedPrompt,
-      width: normalizedWidth,
-      height: normalizedHeight,
       num_blocks: numBlocks,
       num_denoising_steps: 4,
+      strength: strength,
     };
+
+    // Add dimensions for text or canvas mode
+    if (mode === "text" || mode === "canvas") {
+      const normalizedWidth = Math.max(64, Math.round(width / 8) * 8);
+      const normalizedHeight = Math.max(64, Math.round(height / 8) * 8);
+
+      if (normalizedWidth !== width) setWidth(normalizedWidth);
+      if (normalizedHeight !== height) setHeight(normalizedHeight);
+
+      payload.width = normalizedWidth;
+      payload.height = normalizedHeight;
+    }
 
     // Add seed if provided
     const trimmedSeed = seed.trim();
@@ -509,6 +707,62 @@ export default function Page() {
       const numericSeed = Number(trimmedSeed);
       if (!isNaN(numericSeed) && isFinite(numericSeed)) {
         payload.seed = Math.floor(numericSeed);
+      }
+    }
+
+    // Add start frame for video or canvas mode
+    if (mode === "video") {
+      const video = videoElementRef.current;
+      if (!video) {
+        setStatus("Video element not found");
+        setIsGenerating(false);
+        return false;
+      }
+
+      try {
+        video.currentTime = 0;
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(
+            () => reject(new Error("Video seek timeout")),
+            5000
+          );
+          video.onseeked = () => {
+            clearTimeout(timeout);
+            resolve(undefined);
+          };
+        });
+
+        const startFrame = await extractVideoFrameBytes();
+        if (!startFrame || !(startFrame instanceof Uint8Array)) {
+          throw new Error("Failed to extract valid start frame");
+        }
+
+        payload.start_frame = startFrame;
+        console.log("Start frame extracted:", startFrame.length, "bytes");
+      } catch (error: any) {
+        setStatus(`Failed to extract start frame: ${error.message}`);
+        setIsGenerating(false);
+        return false;
+      }
+    } else if (mode === "canvas") {
+      try {
+        const startFrame = await extractCanvasBytes();
+        if (!startFrame || !(startFrame instanceof Uint8Array)) {
+          throw new Error("Failed to extract valid start frame from canvas");
+        }
+
+        payload.start_frame = startFrame;
+        console.log(
+          "Start frame extracted from canvas:",
+          startFrame.length,
+          "bytes"
+        );
+      } catch (error: any) {
+        setStatus(
+          `Failed to extract start frame from canvas: ${error.message}`
+        );
+        setIsGenerating(false);
+        return false;
       }
     }
 
@@ -531,7 +785,18 @@ export default function Page() {
       const encoded = msgpackEncode(payload);
       wsRef.current.send(encoded);
       setStatus("Generation started");
-      console.log("Sent initial params:", payload);
+      console.log("Sent initial params:", {
+        ...payload,
+        start_frame: payload.start_frame
+          ? `[${payload.start_frame.length} bytes]`
+          : undefined,
+      });
+
+      // Start frame extraction for video/canvas modes
+      if (mode === "video" || mode === "canvas") {
+        setTimeout(() => startFrameExtraction(), 500);
+      }
+
       return true;
     } catch (error) {
       console.error("Failed to send parameters:", error);
@@ -543,13 +808,18 @@ export default function Page() {
       return false;
     }
   }, [
+    mode,
     prompt,
     width,
     height,
     numBlocks,
     seed,
+    strength,
     startRecording,
     startPlaybackLoop,
+    extractVideoFrameBytes,
+    extractCanvasBytes,
+    startFrameExtraction,
   ]);
 
   // Connect to WebSocket
@@ -648,12 +918,53 @@ export default function Page() {
       setIsConnected(false);
       setIsGenerating(false);
       stopPlaybackLoop();
+      stopFrameExtraction();
       setTimeout(() => stopRecording(), 500);
       wsRef.current = null;
     };
 
     wsRef.current = ws;
-  }, [sendParams, displayFrame, stopPlaybackLoop, stopRecording]);
+  }, [
+    sendParams,
+    displayFrame,
+    stopPlaybackLoop,
+    stopRecording,
+    stopFrameExtraction,
+  ]);
+
+  // Handle webcam capture
+  const handleAddWebcam = async () => {
+    if (!konvaRef.current) return;
+    // Prevent adding multiple webcams
+    if (hasActiveWebcam) {
+      alert(
+        "Only one webcam can be active at a time. Please remove the existing webcam first."
+      );
+      return;
+    }
+    await konvaRef.current.addWebcam();
+  };
+
+  // Handle image upload
+  const handleImageUpload = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file || !konvaRef.current) return;
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const dataUrl = event.target?.result as string;
+        if (dataUrl) {
+          konvaRef.current?.addImage(dataUrl);
+        }
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  };
 
   // Toggle generation
   const toggleGeneration = async () => {
@@ -663,11 +974,18 @@ export default function Page() {
         wsRef.current.close(1000, "stopped by user");
       }
       stopPlaybackLoop();
+      stopFrameExtraction();
       setTimeout(() => stopRecording(), 500);
     } else {
       const trimmedPrompt = prompt.trim();
       if (!trimmedPrompt) {
         setStatus("Error: Please enter a prompt before starting");
+        return;
+      }
+
+      // Validate mode-specific requirements
+      if (mode === "video" && !videoFile) {
+        setStatus("Error: Please upload a video file");
         return;
       }
 
@@ -729,8 +1047,32 @@ export default function Page() {
       stopPlaybackLoop();
       stopRecording();
       stopPlayback();
+      stopFrameExtraction();
     };
-  }, [stopPlaybackLoop, stopRecording, stopPlayback]);
+  }, [stopPlaybackLoop, stopRecording, stopPlayback, stopFrameExtraction]);
+
+  // Handle video file changes
+  useEffect(() => {
+    if (!videoFile) return;
+
+    const video = videoElementRef.current;
+    if (!video) return;
+
+    const url = URL.createObjectURL(videoFile);
+    video.src = url;
+
+    video.onloadedmetadata = () => {
+      setVideoMetadata({
+        duration: video.duration,
+        width: video.videoWidth,
+        height: video.videoHeight,
+      });
+    };
+
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [videoFile]);
 
   return (
     <>
@@ -789,27 +1131,276 @@ export default function Page() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="p-4 space-y-4">
-                    {/* Prompt */}
-                    <div>
-                      <label className="block text-xs font-medium text-text-muted mb-2 font-mono">
-                        PROMPT
-                        {isGenerating && (
-                          <span className="ml-2 text-green-400">
-                            (LIVE UPDATES)
-                          </span>
-                        )}
-                      </label>
-                      <textarea
-                        value={prompt}
-                        onChange={handlePromptChange}
-                        className="w-full px-3 py-2.5 bg-surface-primary rounded-none border border-border-default focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400/30 transition resize-none text-sm font-mono text-text-primary"
-                        rows={3}
-                        placeholder="Describe what you want to generate..."
-                      />
-                      <p className="text-xs text-text-muted mt-1 font-mono">
-                        Changes update in real-time while generating
-                      </p>
-                    </div>
+                    {/* Mode Tabs */}
+                    <Tabs
+                      value={mode}
+                      onValueChange={(value) =>
+                        setMode(value as "text" | "video" | "canvas")
+                      }
+                      className="w-full"
+                    >
+                      <TabsList className="w-full border border-border-default">
+                        <TabsTrigger
+                          value="text"
+                          disabled={isGenerating}
+                          className="flex-1"
+                        >
+                          TEXT
+                        </TabsTrigger>
+                        <TabsTrigger
+                          value="video"
+                          disabled={isGenerating}
+                          className="flex-1"
+                        >
+                          VIDEO
+                        </TabsTrigger>
+                        <TabsTrigger
+                          value="canvas"
+                          disabled={isGenerating}
+                          className="flex-1"
+                        >
+                          CANVAS
+                        </TabsTrigger>
+                      </TabsList>
+
+                      {/* Text Mode */}
+                      <TabsContent value="text" className="space-y-4 mt-4">
+                        {/* Prompt */}
+                        <div>
+                          <label className="block text-xs font-medium text-text-muted mb-2 font-mono">
+                            PROMPT
+                            {isGenerating && (
+                              <span className="ml-2 text-green-400">
+                                (LIVE UPDATES)
+                              </span>
+                            )}
+                          </label>
+                          <textarea
+                            value={prompt}
+                            onChange={handlePromptChange}
+                            className="w-full px-3 py-2.5 bg-surface-primary rounded-none border border-border-default focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400/30 transition resize-none text-sm font-mono text-text-primary disabled:opacity-50"
+                            rows={3}
+                            placeholder="Describe what you want to generate..."
+                          />
+                          <p className="text-xs text-text-muted mt-1 font-mono">
+                            Changes update in real-time while generating
+                          </p>
+                        </div>
+                      </TabsContent>
+
+                      {/* Video Mode */}
+                      <TabsContent value="video" className="space-y-4 mt-4">
+                        {/* Prompt */}
+                        <div>
+                          <label className="block text-xs font-medium text-text-muted mb-2 font-mono">
+                            PROMPT
+                          </label>
+                          <textarea
+                            value={prompt}
+                            onChange={handlePromptChange}
+                            disabled={isGenerating}
+                            className="w-full px-3 py-2.5 bg-surface-primary rounded-none border border-border-default focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400/30 transition resize-none text-sm font-mono text-text-primary disabled:opacity-50"
+                            rows={3}
+                            placeholder="Describe the transformation..."
+                          />
+                        </div>
+
+                        {/* Video Upload */}
+                        <div>
+                          <label className="block text-xs font-medium text-text-muted mb-2 font-mono">
+                            UPLOAD VIDEO
+                          </label>
+                          <input
+                            type="file"
+                            accept="video/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) setVideoFile(file);
+                            }}
+                            disabled={isGenerating}
+                            className="w-full px-3 py-2 bg-surface-primary rounded-none border border-border-default text-sm font-mono text-text-primary disabled:opacity-50"
+                          />
+                          {videoMetadata && (
+                            <p className="text-xs text-text-muted mt-1 font-mono">
+                              {videoMetadata.width}x{videoMetadata.height} •{" "}
+                              {videoMetadata.duration.toFixed(1)}s
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Input FPS */}
+                        <div>
+                          <label className="block text-xs font-medium text-text-muted mb-2 font-mono">
+                            INPUT FPS: {inputFps}
+                          </label>
+                          <Slider
+                            min={1}
+                            max={30}
+                            step={1}
+                            value={[inputFps]}
+                            onValueChange={(value) => setInputFps(value[0])}
+                            disabled={mode === "text"}
+                            className="w-full"
+                          />
+                          <p className="text-xs text-text-muted mt-1 font-mono">
+                            Frame rate for video input
+                          </p>
+                        </div>
+
+                        {/* Strength */}
+                        <div>
+                          <label className="block text-xs font-medium text-text-muted mb-2 font-mono">
+                            STRENGTH: {strength.toFixed(2)}
+                          </label>
+                          <Slider
+                            min={0}
+                            max={1}
+                            step={0.05}
+                            value={[strength]}
+                            onValueChange={(value) => setStrength(value[0])}
+                            disabled={mode === "text"}
+                            className="w-full"
+                          />
+                          <p className="text-xs text-text-muted mt-1 font-mono">
+                            Transformation strength
+                          </p>
+                        </div>
+                      </TabsContent>
+
+                      {/* Canvas Mode */}
+                      <TabsContent value="canvas" className="space-y-4 mt-4">
+                        {/* Prompt */}
+                        <div>
+                          <label className="block text-xs font-medium text-text-muted mb-2 font-mono">
+                            PROMPT
+                            {isGenerating && (
+                              <span className="ml-2 text-green-400">
+                                (LIVE UPDATES)
+                              </span>
+                            )}
+                          </label>
+                          <textarea
+                            value={prompt}
+                            onChange={handlePromptChange}
+                            className="w-full px-3 py-2.5 bg-surface-primary rounded-none border border-border-default focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400/30 transition resize-none text-sm font-mono text-text-primary disabled:opacity-50"
+                            rows={3}
+                            placeholder="Describe what you want to generate..."
+                          />
+                          <p className="text-xs text-text-muted mt-1 font-mono">
+                            Changes update in real-time while generating
+                          </p>
+                        </div>
+
+                        {/* Canvas Editor */}
+                        <div>
+                          <label className="block text-xs font-medium text-text-muted mb-2 font-mono">
+                            CANVAS EDITOR
+                          </label>
+
+                          {/* Shape Toolbar */}
+                          <div className="flex gap-2 mb-2 flex-wrap">
+                            <Button
+                              onClick={() => konvaRef.current?.addRect()}
+                              variant="default"
+                              size="sm"
+                              className="text-xs font-mono"
+                            >
+                              + RECTANGLE
+                            </Button>
+                            <Button
+                              onClick={() => konvaRef.current?.addCircle()}
+                              variant="default"
+                              size="sm"
+                              className="text-xs font-mono"
+                            >
+                              + CIRCLE
+                            </Button>
+                            <Button
+                              onClick={() => konvaRef.current?.addText()}
+                              variant="default"
+                              size="sm"
+                              className="text-xs font-mono"
+                            >
+                              + TEXT
+                            </Button>
+                            <Button
+                              onClick={handleAddWebcam}
+                              disabled={hasActiveWebcam}
+                              variant={hasActiveWebcam ? "red" : "default"}
+                              size="sm"
+                              className="text-xs font-mono"
+                            >
+                              <Camera className="w-3 h-3 mr-1" />
+                              {hasActiveWebcam ? "WEBCAM ACTIVE" : "WEBCAM"}
+                            </Button>
+                            <Button
+                              onClick={handleImageUpload}
+                              variant="default"
+                              size="sm"
+                              className="text-xs font-mono"
+                            >
+                              <Upload className="w-3 h-3 mr-1" />
+                              IMAGE
+                            </Button>
+                          </div>
+
+                          <KonvaEditor
+                            ref={konvaRef as any}
+                            width={width}
+                            height={height}
+                            onChange={(shapes) => {
+                              // Check if there's a webcam shape in the canvas
+                              const hasWebcam = shapes.some(
+                                (shape: any) => shape.type === "webcam"
+                              );
+                              setHasActiveWebcam(hasWebcam);
+                            }}
+                          />
+                          <p className="text-xs text-text-muted mt-1 font-mono">
+                            Click to select, drag to move, resize with handles.
+                            Delete / Cmd+C / Cmd+V supported.
+                          </p>
+                        </div>
+
+                        {/* Input FPS */}
+                        <div>
+                          <label className="block text-xs font-medium text-text-muted mb-2 font-mono">
+                            INPUT FPS: {inputFps}
+                          </label>
+                          <Slider
+                            min={1}
+                            max={30}
+                            step={1}
+                            value={[inputFps]}
+                            onValueChange={(value) => setInputFps(value[0])}
+                            className="w-full"
+                          />
+                          <p className="text-xs text-text-muted mt-1 font-mono">
+                            Frame rate for canvas input
+                          </p>
+                        </div>
+
+                        {/* Strength */}
+                        <div>
+                          <label className="block text-xs font-medium text-text-muted mb-2 font-mono">
+                            STRENGTH: {strength.toFixed(2)}
+                          </label>
+                          <Slider
+                            min={0}
+                            max={1}
+                            step={0.05}
+                            value={[strength]}
+                            onValueChange={(value) => setStrength(value[0])}
+                            className="w-full"
+                          />
+                          <p className="text-xs text-text-muted mt-1 font-mono">
+                            Transformation strength
+                          </p>
+                        </div>
+                      </TabsContent>
+                    </Tabs>
+
+                    {/* Common Controls (shown for all modes) */}
 
                     {/* Width and Height */}
                     {/* <div className="grid grid-cols-2 gap-3">
@@ -912,7 +1503,7 @@ export default function Page() {
 
                       <Button
                         onClick={toggleGeneration}
-                        className="flex-1 py-3 text-sm font-bold max-w-[200px] font-mono flex items-center justify-between"
+                        className="flex-1 py-3 text-sm font-bold font-mono flex items-center justify-between"
                         variant={isGenerating ? "red" : "blue"}
                       >
                         <span>{isGenerating ? "[ STOP ]" : "[ START ]"}</span>
@@ -1041,6 +1632,15 @@ export default function Page() {
             </main>
           </div>
         </div>
+
+        {/* Hidden elements for video/canvas processing */}
+        <video
+          ref={videoElementRef}
+          style={{ display: "none" }}
+          muted
+          playsInline
+        />
+        <canvas ref={extractionCanvasRef} style={{ display: "none" }} />
 
         {/* Footer */}
         <footer className="w-full relative z-10">
