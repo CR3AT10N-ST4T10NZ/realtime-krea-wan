@@ -129,8 +129,8 @@ export default function RootLayout({
       </head>
       <body className={`font-sans bg-background text-foreground min-h-screen`}>
         <CoreProviders>{children}</CoreProviders>
+        <Analytics />
       </body>
-      <Analytics />
     </html>
   );
 }
