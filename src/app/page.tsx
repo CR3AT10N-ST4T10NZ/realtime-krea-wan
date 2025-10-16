@@ -1696,7 +1696,7 @@ export default function Page() {
                 </Link>
 
                 <Link
-                  href="https://github.com/fal-ai"
+                  href="https://github.com/fal-ai-community/realtime-krea-wan"
                   target="_blank"
                   className={buttonVariants({
                     variant: "ghost",
