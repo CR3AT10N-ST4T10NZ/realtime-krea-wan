@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
@@ -91,6 +91,21 @@ export default function Page() {
     width: number;
     height: number;
   } | null>(null);
+
+  // Memoize video preview URL to prevent recreating on every render
+  const videoPreviewUrl = useMemo(() => {
+    if (!videoFile) return null;
+    return URL.createObjectURL(videoFile);
+  }, [videoFile]);
+
+  // Cleanup video URL when component unmounts or videoFile changes
+  useEffect(() => {
+    return () => {
+      if (videoPreviewUrl) {
+        URL.revokeObjectURL(videoPreviewUrl);
+      }
+    };
+  }, [videoPreviewUrl]);
 
   // Refs
   const wsRef = useRef<WebSocket | null>(null);
@@ -1207,9 +1222,21 @@ export default function Page() {
 
                         {/* Video Upload */}
                         <div>
-                          <label className="block text-xs font-medium text-text-muted mb-2 font-mono">
+                          <label className="block text-xs font-medium text-content-light mb-2 font-mono">
                             UPLOAD VIDEO
                           </label>
+
+                          {videoFile && videoPreviewUrl && (
+                            <div className="mb-3 border border-stroke-base rounded-none overflow-hidden">
+                              <video
+                                src={videoPreviewUrl}
+                                controls
+                                className="w-full h-auto bg-black"
+                                style={{ maxHeight: "200px" }}
+                              />
+                            </div>
+                          )}
+
                           <input
                             type="file"
                             accept="video/*"
@@ -1218,10 +1245,10 @@ export default function Page() {
                               if (file) setVideoFile(file);
                             }}
                             disabled={isGenerating}
-                            className="w-full px-3 py-2 bg-surface-primary rounded-none border border-border-default text-sm font-mono text-text-primary disabled:opacity-50"
+                            className="w-full text-sm hover:border-border-default hover:bg-surface-hover cursor-pointer font-mono text-content-light file:mr-4 file:py-2 file:px-4 file:rounded-none border p-1 file:border file:border-blue-500/30 file:text-sm file:font-mono file:bg-blue-500/20 file:text-blue-400 hover:file:bg-blue-500/30 hover:file:border-blue-500/50 file:cursor-pointer file:transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           />
                           {videoMetadata && (
-                            <p className="text-xs text-text-muted mt-1 font-mono">
+                            <p className="text-xs text-content-light mt-1 font-mono">
                               {videoMetadata.width}x{videoMetadata.height} •{" "}
                               {videoMetadata.duration.toFixed(1)}s
                             </p>
