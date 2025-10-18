@@ -79,13 +79,17 @@ export type KonvaEditorHandle = {
   addWebcam: () => Promise<void>;
   deleteSelected: () => void;
   duplicateSelected: () => void;
+  changeShapeColor: (color: string) => void;
+  getSelectedShape: () => Shape | null;
 };
 
 type Props = {
   width: number;
   height: number;
+  backgroundColor?: string;
   initialShapes?: Shape[];
   onChange?: (shapes: Shape[]) => void;
+  onSelectionChange?: (shape: Shape | null) => void;
 };
 
 // Component to render an image shape using the use-image hook
@@ -197,30 +201,33 @@ const WebcamRenderer = ({
 };
 
 const KonvaEditor = forwardRef<KonvaEditorHandle, Props>(
-  ({ width, height, initialShapes, onChange }, ref) => {
+  (
+    {
+      width,
+      height,
+      backgroundColor = "white",
+      initialShapes,
+      onChange,
+      onSelectionChange,
+    },
+    ref
+  ) => {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const [containerWidth, setContainerWidth] = useState<number>(width);
     const stageRef = useRef<any>(null);
     const layerRef = useRef<any>(null);
     const trRef = useRef<any>(null);
-    const [shapes, setShapes] = useState<Shape[]>(
-      initialShapes ?? [
-        {
-          type: "rect",
-          id: "rect-1",
-          x: Math.max(0, width / 2 - 50),
-          y: Math.max(0, height / 2 - 50),
-          width: 100,
-          height: 100,
-          fill: "#3b82f6",
-        } as RectShape,
-      ]
-    );
+    const [shapes, setShapes] = useState<Shape[]>(initialShapes ?? []);
     const [selectedId, setSelectedId] = useState<string | null>(null);
 
     useEffect(() => {
       onChange?.(shapes);
     }, [shapes, onChange]);
+
+    useEffect(() => {
+      const selected = shapes.find((s) => s.id === selectedId) || null;
+      onSelectionChange?.(selected);
+    }, [selectedId, shapes, onSelectionChange]);
 
     // Observe container width and maintain aspect ratio for Stage height
     useEffect(() => {
@@ -245,16 +252,38 @@ const KonvaEditor = forwardRef<KonvaEditorHandle, Props>(
       () => ({
         toDataURL: () => {
           const stage = stageRef.current;
+          const transformer = trRef.current;
           if (!stage) return null;
           try {
+            // Temporarily hide the transformer (selection handles) during export
+            const wasVisible = transformer?.visible();
+            if (transformer && wasVisible !== false) {
+              transformer.visible(false);
+              transformer.getLayer()?.batchDraw();
+            }
+
             // Export at the actual width/height dimensions, not the scaled display size
-            return stage.toDataURL({
+            const dataUrl = stage.toDataURL({
               mimeType: "image/jpeg",
               quality: 0.9,
               pixelRatio: width / containerWidth,
             });
+
+            // Restore transformer visibility
+            if (transformer && wasVisible !== false) {
+              transformer.visible(true);
+              transformer.getLayer()?.batchDraw();
+            }
+
+            return dataUrl;
           } catch (e) {
             console.error("Failed to export Konva stage to data URL:", e);
+            // Make sure to restore transformer visibility even if export fails
+            const transformer = trRef.current;
+            if (transformer) {
+              transformer.visible(true);
+              transformer.getLayer()?.batchDraw();
+            }
             return null;
           }
         },
@@ -378,6 +407,27 @@ const KonvaEditor = forwardRef<KonvaEditorHandle, Props>(
           const copy = { ...sel, id, x: sel.x + 20, y: sel.y + 20 } as Shape;
           setShapes((prev) => [...prev, copy]);
           setSelectedId(id);
+        },
+        changeShapeColor: (color: string) => {
+          if (!selectedId) return;
+          setShapes((prev) =>
+            prev.map((s) => {
+              if (s.id !== selectedId) return s;
+              // Only update shapes that have a fill property
+              if (
+                s.type === "rect" ||
+                s.type === "circle" ||
+                s.type === "text"
+              ) {
+                return { ...s, fill: color };
+              }
+              return s;
+            })
+          );
+        },
+        getSelectedShape: () => {
+          if (!selectedId) return null;
+          return shapes.find((s) => s.id === selectedId) || null;
         },
       }),
       [selectedId, shapes, width, height, containerWidth]
@@ -540,7 +590,7 @@ const KonvaEditor = forwardRef<KonvaEditorHandle, Props>(
           style={{
             width: "100%",
             height: "100%",
-            background: "white",
+            background: backgroundColor,
             border: "1px solid var(--border-default)",
           }}
         >
