@@ -14,8 +14,6 @@ type CanvasModeControlsProps = {
   konvaRef: RefObject<KonvaEditorHandle | null>;
   width: number;
   height: number;
-  inputFps: number;
-  onInputFpsChange: (value: number) => void;
   strength: number;
   onStrengthChange: (value: number) => void;
   hasActiveWebcam: boolean;
@@ -32,8 +30,6 @@ export function CanvasModeControls({
   konvaRef,
   width,
   height,
-  inputFps,
-  onInputFpsChange,
   strength,
   onStrengthChange,
   hasActiveWebcam,
@@ -136,24 +132,6 @@ export function CanvasModeControls({
         <p className="text-xs text-text-muted mt-1 font-mono">
           Click to select, drag to move, resize with handles. Delete / Cmd+C /
           Cmd+V supported.
-        </p>
-      </div>
-
-      {/* Input FPS */}
-      <div>
-        <label className="block text-xs font-medium text-text-muted mb-2 font-mono">
-          INPUT FPS: {inputFps}
-        </label>
-        <Slider
-          min={1}
-          max={30}
-          step={1}
-          value={[inputFps]}
-          onValueChange={(value) => onInputFpsChange(value[0])}
-          className="w-full"
-        />
-        <p className="text-xs text-text-muted mt-1 font-mono">
-          Frame rate for canvas input
         </p>
       </div>
 

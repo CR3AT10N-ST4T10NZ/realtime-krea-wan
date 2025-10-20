@@ -45,6 +45,9 @@ const structuredData = {
 
 const FAL_APP_ALIAS = process.env.NEXT_PUBLIC_FAL_APP_ALIAS || "krea-wan-14b";
 
+const INPUT_FPS = 10;
+const PLAYBACK_FPS = 8;
+
 const PROMPT_PRESETS = [
   "Professional grade video of a man wearing sunglasses and relaxing at the beach. He has a calm expression on his face.",
   "Professional grade video of a woman sipping coffee at a cozy cafe. She has a content and peaceful expression.",
@@ -72,8 +75,6 @@ export default function Page() {
   const [hasActiveWebcam, setHasActiveWebcam] = useState(false);
   const [numBlocks] = useState(1000);
   const [seed, setSeed] = useState("");
-  const [playbackFps, setPlaybackFps] = useState(8);
-  const [inputFps, setInputFps] = useState(10);
   const [strength, setStrength] = useState(0.5);
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -99,7 +100,7 @@ export default function Page() {
     togglePlayback,
     clearCanvas,
     setFrameCount,
-  } = useFrameCapture(playbackFps);
+  } = useFrameCapture(PLAYBACK_FPS);
 
   const {
     isConnected,
@@ -185,21 +186,14 @@ export default function Page() {
 
   // Start frame extraction wrapper
   const startFrameExtractionWrapper = useCallback(
-    (fps: number = inputFps) => {
+    (fps: number = INPUT_FPS) => {
       startFrameExtraction(fps, extractCurrentFrame, {
         strength,
         prompt,
         numBlocks,
       });
     },
-    [
-      startFrameExtraction,
-      extractCurrentFrame,
-      strength,
-      prompt,
-      numBlocks,
-      inputFps,
-    ]
+    [startFrameExtraction, extractCurrentFrame, strength, prompt, numBlocks]
   );
 
   // Toggle generation
@@ -248,7 +242,7 @@ export default function Page() {
         strength,
         mode,
         startFrame,
-        inputFps,
+        inputFps: INPUT_FPS,
         onWidthChange: setWidth,
         onHeightChange: setHeight,
       },
@@ -306,7 +300,7 @@ export default function Page() {
     setStatus("Processing video with FFmpeg...");
 
     try {
-      const blob = await exportVideo(storedFrames.current, playbackFps);
+      const blob = await exportVideo(storedFrames.current, PLAYBACK_FPS);
 
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -331,7 +325,7 @@ export default function Page() {
       console.error("Failed to create video:", error);
       setStatus(`Error creating video: ${error}`);
     }
-  }, [exportVideo, isGenerating, playbackFps, setStatus, storedFrames]);
+  }, [exportVideo, isGenerating, setStatus, storedFrames]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -427,8 +421,6 @@ export default function Page() {
                   webcamStream={webcamStream}
                   width={width}
                   height={height}
-                  inputFps={inputFps}
-                  onInputFpsChange={setInputFps}
                   hasActiveWebcam={hasActiveWebcam}
                   onShapesChange={(shapes) => {
                     const hasWebcam = shapes.some(
@@ -443,13 +435,6 @@ export default function Page() {
                   seed={seed}
                   onSeedChange={setSeed}
                   onRandomizeSeed={randomizeSeed}
-                  playbackFps={playbackFps}
-                  onPlaybackFpsChange={(fps) => {
-                    setPlaybackFps(fps);
-                    if (isPlaying) {
-                      startPlaybackLoop();
-                    }
-                  }}
                   isGenerating={isGenerating}
                   hasRecordedVideo={hasRecordedVideo}
                   isPlaying={isPlaying}

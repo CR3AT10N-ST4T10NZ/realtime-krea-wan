@@ -31,8 +31,6 @@ type ControlsPanelProps = {
   webcamStream: MediaStream | null;
   width: number;
   height: number;
-  inputFps: number;
-  onInputFpsChange: (value: number) => void;
   hasActiveWebcam: boolean;
   onShapesChange: (shapes: any[]) => void;
   onAddWebcam: () => void;
@@ -44,8 +42,6 @@ type ControlsPanelProps = {
   seed: string;
   onSeedChange: (value: string) => void;
   onRandomizeSeed: () => void;
-  playbackFps: number;
-  onPlaybackFpsChange: (value: number) => void;
 
   // Actions
   isGenerating: boolean;
@@ -68,8 +64,6 @@ export function ControlsPanel({
   webcamStream,
   width,
   height,
-  inputFps,
-  onInputFpsChange,
   hasActiveWebcam,
   onShapesChange,
   onAddWebcam,
@@ -79,8 +73,6 @@ export function ControlsPanel({
   seed,
   onSeedChange,
   onRandomizeSeed,
-  playbackFps,
-  onPlaybackFpsChange,
   isGenerating,
   hasRecordedVideo,
   isPlaying,
@@ -152,8 +144,6 @@ export function ControlsPanel({
               konvaRef={konvaRef}
               width={width}
               height={height}
-              inputFps={inputFps}
-              onInputFpsChange={onInputFpsChange}
               strength={strength}
               onStrengthChange={onStrengthChange}
               hasActiveWebcam={hasActiveWebcam}
@@ -204,24 +194,6 @@ export function ControlsPanel({
               height={height}
             />
 
-            {/* Input FPS */}
-            <div>
-              <label className="block text-xs font-medium text-text-muted mb-2 font-mono">
-                INPUT FPS: {inputFps}
-              </label>
-              <Slider
-                min={1}
-                max={30}
-                step={1}
-                value={[inputFps]}
-                onValueChange={(value) => onInputFpsChange(value[0])}
-                className="w-full"
-              />
-              <p className="text-xs text-text-muted mt-1 font-mono">
-                Frame rate for webcam input
-              </p>
-            </div>
-
             {/* Strength */}
             <div>
               <label className="block text-xs font-medium text-text-muted mb-2 font-mono">
@@ -243,24 +215,6 @@ export function ControlsPanel({
         </Tabs>
 
         {/* Common Controls (shown for all modes) */}
-
-        {/* Playback FPS */}
-        <div>
-          <label className="block text-xs font-medium text-text-muted mb-2 font-mono">
-            PLAYBACK FPS: {playbackFps}
-          </label>
-          <Slider
-            min={1}
-            max={30}
-            step={1}
-            value={[playbackFps]}
-            onValueChange={(value) => onPlaybackFpsChange(value[0])}
-            className="w-full"
-          />
-          <p className="text-xs text-text-muted mt-1 font-mono">
-            Frame rate for video playback
-          </p>
-        </div>
 
         {/* Seed */}
         <div>
