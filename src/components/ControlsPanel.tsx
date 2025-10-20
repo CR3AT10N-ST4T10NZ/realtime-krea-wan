@@ -102,11 +102,11 @@ export function ControlsPanel({
         >
           <TabsList className="w-full border border-border-default">
             <TabsTrigger
-              value="text"
+              value="webcam"
               disabled={isGenerating}
               className="flex-1"
             >
-              TEXT
+              WEBCAM
             </TabsTrigger>
             <TabsTrigger
               value="canvas"
@@ -116,42 +116,13 @@ export function ControlsPanel({
               CANVAS
             </TabsTrigger>
             <TabsTrigger
-              value="webcam"
+              value="text"
               disabled={isGenerating}
               className="flex-1"
             >
-              WEBCAM
+              TEXT
             </TabsTrigger>
           </TabsList>
-
-          {/* Text Mode */}
-          <TabsContent value="text" className="space-y-4 mt-4">
-            <TextModeControls
-              prompt={prompt}
-              onPromptChange={onPromptChange}
-              onSurpriseMe={onSurpriseMe}
-              isGenerating={isGenerating}
-            />
-          </TabsContent>
-
-          {/* Canvas Mode */}
-          <TabsContent value="canvas" className="space-y-4 mt-4">
-            <CanvasModeControls
-              prompt={prompt}
-              onPromptChange={onPromptChange}
-              onSurpriseMe={onSurpriseMe}
-              isGenerating={isGenerating}
-              konvaRef={konvaRef}
-              width={width}
-              height={height}
-              strength={strength}
-              onStrengthChange={onStrengthChange}
-              hasActiveWebcam={hasActiveWebcam}
-              onShapesChange={onShapesChange}
-              onAddWebcam={onAddWebcam}
-              onImageUpload={onImageUpload}
-            />
-          </TabsContent>
 
           {/* Webcam Mode */}
           <TabsContent value="webcam" className="space-y-4 mt-4">
@@ -211,6 +182,35 @@ export function ControlsPanel({
                 Transformation strength
               </p>
             </div>
+          </TabsContent>
+
+          {/* Canvas Mode */}
+          <TabsContent value="canvas" className="space-y-4 mt-4">
+            <CanvasModeControls
+              prompt={prompt}
+              onPromptChange={onPromptChange}
+              onSurpriseMe={onSurpriseMe}
+              isGenerating={isGenerating}
+              konvaRef={konvaRef}
+              width={width}
+              height={height}
+              strength={strength}
+              onStrengthChange={onStrengthChange}
+              hasActiveWebcam={hasActiveWebcam}
+              onShapesChange={onShapesChange}
+              onAddWebcam={onAddWebcam}
+              onImageUpload={onImageUpload}
+            />
+          </TabsContent>
+
+          {/* Text Mode */}
+          <TabsContent value="text" className="space-y-4 mt-4">
+            <TextModeControls
+              prompt={prompt}
+              onPromptChange={onPromptChange}
+              onSurpriseMe={onSurpriseMe}
+              isGenerating={isGenerating}
+            />
           </TabsContent>
         </Tabs>
 

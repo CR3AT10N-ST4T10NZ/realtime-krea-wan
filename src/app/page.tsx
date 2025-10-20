@@ -68,7 +68,7 @@ const PROMPT_PRESETS = [
 
 export default function Page() {
   // UI State
-  const [mode, setMode] = useState<"text" | "canvas" | "webcam">("text");
+  const [mode, setMode] = useState<"text" | "canvas" | "webcam">("webcam");
   const [prompt, setPrompt] = useState(PROMPT_PRESETS[0]);
   const [width, setWidth] = useState(832);
   const [height, setHeight] = useState(480);
