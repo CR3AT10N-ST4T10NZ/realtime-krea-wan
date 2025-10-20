@@ -73,7 +73,7 @@ export default function Page() {
   const [numBlocks] = useState(1000);
   const [seed, setSeed] = useState("");
   const [playbackFps, setPlaybackFps] = useState(8);
-  const [inputFps, setInputFps] = useState(8);
+  const [inputFps, setInputFps] = useState(10);
   const [strength, setStrength] = useState(0.5);
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -185,14 +185,21 @@ export default function Page() {
 
   // Start frame extraction wrapper
   const startFrameExtractionWrapper = useCallback(
-    (fps: number) => {
+    (fps: number = inputFps) => {
       startFrameExtraction(fps, extractCurrentFrame, {
         strength,
         prompt,
         numBlocks,
       });
     },
-    [startFrameExtraction, extractCurrentFrame, strength, prompt, numBlocks]
+    [
+      startFrameExtraction,
+      extractCurrentFrame,
+      strength,
+      prompt,
+      numBlocks,
+      inputFps,
+    ]
   );
 
   // Toggle generation
@@ -241,6 +248,7 @@ export default function Page() {
         strength,
         mode,
         startFrame,
+        inputFps,
         onWidthChange: setWidth,
         onHeightChange: setHeight,
       },

@@ -18,6 +18,7 @@ type SendParamsOptions = {
   strength: number;
   mode: "text" | "canvas" | "webcam";
   startFrame: Uint8Array | null;
+  inputFps: number;
   onWidthChange: (width: number) => void;
   onHeightChange: (height: number) => void;
 };
@@ -248,7 +249,11 @@ export function useWebSocket({
 
           // Start frame extraction for canvas/webcam modes
           if (options.mode === "canvas" || options.mode === "webcam") {
-            setTimeout(() => callbacks.startFrameExtraction(12), 500);
+            // Start continuous frame extraction after first block is generated
+            setTimeout(
+              () => callbacks.startFrameExtraction(options.inputFps),
+              500
+            );
           }
 
           return true;
